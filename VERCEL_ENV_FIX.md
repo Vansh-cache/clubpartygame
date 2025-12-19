@@ -105,3 +105,4 @@ Once fixed, your Vercel deployment will:
 
 Make sure to also update CORS settings in your backend to allow requests from your Vercel domain!
 
+
