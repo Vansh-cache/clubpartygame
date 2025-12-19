@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Clock, Trophy, Sparkles, Bell } from "lucide-react";
 import axios from "axios";
-import { JackpotScreen } from "./JackpotScreen";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -32,80 +31,11 @@ export function LiveQuestionDisplay() {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [showingResult, setShowingResult] = useState(false);
   const [winner, setWinner] = useState<Winner | null>(null);
-  const [showJackpot, setShowJackpot] = useState(false);
-  const [jackpotParticipants, setJackpotParticipants] = useState<string[]>([]);
 
-  // Fetch employees for jackpot
-  useEffect(() => {
-    const fetchEmployees = async () => {
-      try {
-        const response = await axios.get(`${API_BASE_URL}/employees`);
-        const employeeNames = response.data.map((emp: any) => emp.name);
-        setJackpotParticipants(employeeNames);
-      } catch (error) {
-        console.error('Error fetching employees:', error);
-      }
-    };
-    fetchEmployees();
-  }, []);
-
-  // Listen for jackpot trigger
-  useEffect(() => {
-    let lastJackpotTimestamp = 0;
-
-    const checkJackpot = () => {
-      const jackpotActive = localStorage.getItem('jackpotActivated');
-      if (jackpotActive) {
-        const timestamp = parseInt(jackpotActive);
-        if (timestamp > lastJackpotTimestamp) {
-          console.log('📺 Live Display: Jackpot activated! Timestamp:', timestamp);
-          lastJackpotTimestamp = timestamp;
-          setShowJackpot(true);
-          
-          // Hide jackpot after 30 seconds
-          setTimeout(() => {
-            console.log('📺 Live Display: Hiding jackpot after 30 seconds');
-            setShowJackpot(false);
-            localStorage.removeItem('jackpotActivated');
-          }, 30000);
-        }
-      }
-    };
-
-    const handleJackpotEvent = () => {
-      console.log('📺 Live Display: Jackpot custom event received!');
-      checkJackpot();
-    };
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'jackpotActivated') {
-        console.log('📺 Live Display: Jackpot storage event detected!');
-        checkJackpot();
-      }
-    };
-
-    window.addEventListener('jackpotActivated', handleJackpotEvent);
-    window.addEventListener('storage', handleStorageChange);
-    
-    // Check immediately and poll every 500ms for fast response
-    checkJackpot();
-    const interval = setInterval(checkJackpot, 500);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('jackpotActivated', handleJackpotEvent);
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, []);
 
   // Poll for active and scheduled questions
   useEffect(() => {
     const checkActiveQuestion = async () => {
-      // Don't check for questions if jackpot is showing
-      if (showJackpot) {
-        return;
-      }
-      
       try {
         const response = await axios.get(`${API_BASE_URL}/questions/active`);
         if (response.data && response.data.isActive) {
@@ -200,7 +130,7 @@ export function LiveQuestionDisplay() {
       window.removeEventListener('questionActivated', handleQuestionActivated);
       window.removeEventListener('questionCompleted', handleQuestionCompleted);
     };
-  }, [currentQuestion, showingResult, showJackpot]);
+  }, [currentQuestion, showingResult]);
 
   // Calculate time left based on activation time
   useEffect(() => {
@@ -250,15 +180,15 @@ export function LiveQuestionDisplay() {
         });
         setShowingResult(true);
         
-        // Show results for 10 seconds, then go back to waiting
-        console.log('📺 Live Display: Results will show for 10 seconds...');
+        // Show results for 5 seconds, then go back to waiting
+        console.log('📺 Live Display: Results will show for 5 seconds...');
         setTimeout(() => {
           console.log('📺 Live Display: Returning to waiting screen');
           setShowingResult(false);
           setWinner(null);
           setCurrentQuestion(null);
           setTimeLeft(0);
-        }, 10000);
+        }, 5000);
       } else {
         console.warn('📺 Live Display: No winner found in results');
       }
@@ -269,23 +199,12 @@ export function LiveQuestionDisplay() {
 
   const progress = currentQuestion ? (timeLeft / currentQuestion.duration) * 100 : 0;
 
-  // Showing jackpot
-  if (showJackpot) {
-    return (
-      <JackpotScreen
-        participants={jackpotParticipants}
-        isAdmin={false}
-        autoStart={false}
-      />
-    );
-  }
-
   // Showing scheduled question countdown
   if (scheduledQuestion && timeUntilScheduled !== null && timeUntilScheduled > 0 && !showingResult) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-black to-cyan-900 flex items-center justify-center p-8 relative overflow-hidden">
+      <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-black to-cyan-900 flex items-center justify-center p-4 relative overflow-hidden">
         {/* Floating particles */}
-        {[...Array(30)].map((_, i) => (
+        {[...Array(20)].map((_, i) => (
           <motion.div
             key={i}
             className="absolute w-2 h-2 bg-yellow-400/30 rounded-full"
@@ -306,13 +225,14 @@ export function LiveQuestionDisplay() {
         ))}
 
         <motion.div
-          className="relative z-10 max-w-4xl w-full text-center space-y-12"
+          className="relative z-10 max-w-6xl w-full text-center flex flex-col items-center justify-center"
+          style={{ maxHeight: '95vh' }}
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
         >
           {/* Bell Icon */}
           <motion.div
-            className="flex justify-center"
+            className="mb-6"
             animate={{
               rotate: [0, 15, -15, 0],
             }}
@@ -322,12 +242,12 @@ export function LiveQuestionDisplay() {
               repeatDelay: 2,
             }}
           >
-            <Bell className="w-32 h-32 text-yellow-400" />
+            <Bell className="w-24 h-24 text-yellow-400" />
           </motion.div>
 
           {/* Countdown Box */}
           <motion.div
-            className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 backdrop-blur-lg rounded-3xl p-12 border-4 border-yellow-500/50"
+            className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 backdrop-blur-lg rounded-3xl p-8 border-4 border-yellow-500/50 mb-6"
             animate={{
               boxShadow: [
                 "0 0 20px rgba(234, 179, 8, 0.3)",
@@ -340,15 +260,15 @@ export function LiveQuestionDisplay() {
               repeat: Infinity,
             }}
           >
-            <div className="flex items-center justify-center space-x-4 mb-6">
-              <Bell className="w-12 h-12 text-yellow-400" />
-              <h2 className="text-4xl md:text-5xl font-bold text-yellow-300">
+            <div className="flex items-center justify-center space-x-4 mb-4">
+              <Bell className="w-10 h-10 text-yellow-400" />
+              <h2 className="text-3xl md:text-4xl font-bold text-yellow-300">
                 Next Question In:
               </h2>
             </div>
             
             <motion.div
-              className="text-9xl md:text-[12rem] font-black text-yellow-400"
+              className="text-8xl md:text-9xl font-black text-yellow-400"
               animate={
                 timeUntilScheduled <= 30
                   ? { scale: [1, 1.1, 1] }
@@ -364,7 +284,7 @@ export function LiveQuestionDisplay() {
             
             {timeUntilScheduled <= 30 && (
               <motion.p
-                className="text-yellow-300 text-3xl mt-6 font-semibold"
+                className="text-yellow-300 text-2xl mt-4 font-semibold"
                 animate={{ opacity: [0.5, 1, 0.5] }}
                 transition={{ duration: 1.5, repeat: Infinity }}
               >
@@ -375,13 +295,13 @@ export function LiveQuestionDisplay() {
 
           {/* Question Preview */}
           <motion.div
-            className="bg-black/50 backdrop-blur-lg rounded-2xl p-8 border-2 border-purple-500/30"
+            className="bg-black/50 backdrop-blur-lg rounded-2xl p-6 border-2 border-purple-500/30 max-w-4xl"
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.3 }}
           >
-            <p className="text-gray-400 text-2xl mb-3">Upcoming Question:</p>
-            <p className="text-4xl font-bold text-white">{scheduledQuestion.text}</p>
+            <p className="text-gray-400 text-xl mb-2">Upcoming Question:</p>
+            <p className="text-2xl md:text-3xl font-bold text-white line-clamp-3">{scheduledQuestion.text}</p>
           </motion.div>
         </motion.div>
       </div>
@@ -391,9 +311,9 @@ export function LiveQuestionDisplay() {
   // Showing results
   if (showingResult && winner) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-black to-cyan-900 flex items-center justify-center p-8 relative overflow-hidden">
+      <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-black to-cyan-900 flex items-center justify-center p-4 relative overflow-hidden">
         {/* Celebration particles */}
-        {[...Array(50)].map((_, i) => (
+        {[...Array(30)].map((_, i) => (
           <motion.div
             key={i}
             className="absolute w-3 h-3 bg-yellow-400 rounded-full"
@@ -418,11 +338,12 @@ export function LiveQuestionDisplay() {
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
-          className="relative z-10 max-w-5xl w-full text-center space-y-12"
+          className="relative z-10 max-w-6xl w-full text-center flex flex-col items-center justify-center"
+          style={{ maxHeight: '95vh' }}
         >
           {/* Trophy Icon */}
           <motion.div
-            className="flex justify-center"
+            className="mb-6"
             animate={{
               scale: [1, 1.2, 1],
               rotate: [0, 5, -5, 0],
@@ -432,13 +353,13 @@ export function LiveQuestionDisplay() {
               repeat: Infinity,
             }}
           >
-            <Trophy className="w-40 h-40 text-yellow-400" />
+            <Trophy className="w-32 h-32 text-yellow-400" />
           </motion.div>
 
           {/* Winner Announcement */}
-          <div className="space-y-6">
+          <div className="space-y-4 w-full">
             <motion.h1
-              className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-orange-400 to-pink-400"
+              className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-orange-400 to-pink-400"
               animate={{
                 scale: [1, 1.05, 1],
               }}
@@ -451,16 +372,16 @@ export function LiveQuestionDisplay() {
             </motion.h1>
 
             <motion.div
-              className="bg-black/50 backdrop-blur-lg rounded-3xl p-12 border-4 border-yellow-500/50"
+              className="bg-black/50 backdrop-blur-lg rounded-3xl p-6 md:p-8 border-4 border-yellow-500/50"
               initial={{ y: 50, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.3 }}
             >
-              <p className="text-yellow-300 text-3xl mb-4 font-semibold">
+              <p className="text-yellow-300 text-xl md:text-2xl mb-3 font-semibold line-clamp-2">
                 {winner.questionText}
               </p>
               <motion.p
-                className="text-8xl font-black text-white mb-6"
+                className="text-6xl md:text-7xl font-black text-white mb-4"
                 animate={{
                   textShadow: [
                     "0 0 20px rgba(250,204,21,0.5)",
@@ -475,7 +396,7 @@ export function LiveQuestionDisplay() {
               >
                 {winner.winner}
               </motion.p>
-              <div className="flex items-center justify-center space-x-8 text-2xl text-gray-300">
+              <div className="flex items-center justify-center space-x-6 text-xl text-gray-300">
                 <div>
                   <span className="font-bold text-yellow-400">{winner.voteCount}</span> votes
                 </div>
@@ -489,7 +410,7 @@ export function LiveQuestionDisplay() {
           </div>
 
           <motion.div
-            className="flex justify-center space-x-4"
+            className="flex justify-center space-x-3 mt-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.6 }}
@@ -497,7 +418,7 @@ export function LiveQuestionDisplay() {
             {[...Array(5)].map((_, i) => (
               <Sparkles
                 key={i}
-                className="w-16 h-16 text-yellow-400"
+                className="w-12 h-12 text-yellow-400"
                 style={{
                   animation: `pulse ${1 + i * 0.2}s infinite`,
                 }}
@@ -512,7 +433,7 @@ export function LiveQuestionDisplay() {
   // Showing active question
   if (currentQuestion) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-black to-cyan-900 p-8 relative overflow-hidden">
+      <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-black to-cyan-900 p-4 relative overflow-hidden flex items-center justify-center">
         {/* Background animation */}
         <motion.div
           className="absolute inset-0 opacity-30"
@@ -529,20 +450,20 @@ export function LiveQuestionDisplay() {
           }}
         />
 
-        <div className="relative z-10 max-w-7xl mx-auto space-y-12 pt-12">
+        <div className="relative z-10 max-w-7xl w-full mx-auto flex flex-col justify-center space-y-6" style={{ maxHeight: '95vh' }}>
           {/* Timer */}
           <motion.div
-            className="bg-black/70 backdrop-blur-lg rounded-3xl p-8 border-4 border-cyan-500/50"
+            className="bg-black/70 backdrop-blur-lg rounded-3xl p-6 border-4 border-cyan-500/50"
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
           >
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-4">
-                <Clock className="w-12 h-12 text-cyan-400" />
-                <span className="text-white font-bold text-4xl">Time Remaining</span>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-3">
+                <Clock className="w-10 h-10 text-cyan-400" />
+                <span className="text-white font-bold text-2xl md:text-3xl">Time Remaining</span>
               </div>
               <motion.span
-                className={`text-8xl font-black ${
+                className={`text-6xl md:text-7xl font-black ${
                   timeLeft < 10 ? "text-red-400" : "text-cyan-400"
                 }`}
                 animate={timeLeft < 10 ? { scale: [1, 1.2, 1] } : {}}
@@ -551,7 +472,7 @@ export function LiveQuestionDisplay() {
                 {timeLeft}s
               </motion.span>
             </div>
-            <div className="w-full bg-gray-700 rounded-full h-6 overflow-hidden">
+            <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
               <motion.div
                 className={`h-full rounded-full ${
                   timeLeft < 10 ? "bg-red-500" : "bg-cyan-500"
@@ -565,13 +486,13 @@ export function LiveQuestionDisplay() {
 
           {/* Question */}
           <motion.div
-            className="bg-black/70 backdrop-blur-lg rounded-3xl p-16 border-4 border-purple-500/50 text-center"
+            className="bg-black/70 backdrop-blur-lg rounded-3xl p-8 md:p-12 border-4 border-purple-500/50 text-center flex-1 flex items-center justify-center"
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.2 }}
           >
             <motion.h2
-              className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 mb-8"
+              className="text-4xl md:text-6xl lg:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400"
               animate={{
                 backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
               }}
@@ -594,9 +515,9 @@ export function LiveQuestionDisplay() {
 
   // Waiting for question
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-black to-cyan-900 flex items-center justify-center p-8 relative overflow-hidden">
+    <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-black to-cyan-900 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Floating particles */}
-      {[...Array(30)].map((_, i) => (
+      {[...Array(20)].map((_, i) => (
         <motion.div
           key={i}
           className="absolute w-2 h-2 bg-cyan-400/30 rounded-full"
@@ -617,12 +538,12 @@ export function LiveQuestionDisplay() {
       ))}
 
       <motion.div
-        className="relative z-10 text-center space-y-12"
+        className="relative z-10 text-center flex flex-col items-center justify-center"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
         <motion.div
-          className="flex justify-center"
+          className="mb-8"
           animate={{
             scale: [1, 1.2, 1],
             rotate: [0, 360],
@@ -633,12 +554,12 @@ export function LiveQuestionDisplay() {
             ease: "easeInOut",
           }}
         >
-          <Clock className="w-40 h-40 text-cyan-400" />
+          <Clock className="w-32 h-32 text-cyan-400" />
         </motion.div>
 
-        <div className="space-y-6">
+        <div className="space-y-4 mb-8">
           <motion.h3
-            className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400"
+            className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400"
             animate={{
               opacity: [0.7, 1, 0.7],
             }}
@@ -651,7 +572,7 @@ export function LiveQuestionDisplay() {
           </motion.h3>
 
           <motion.p
-            className="text-3xl text-gray-300"
+            className="text-2xl md:text-3xl text-gray-300"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
@@ -661,11 +582,11 @@ export function LiveQuestionDisplay() {
         </div>
 
         {/* Animated wave */}
-        <motion.div className="flex justify-center space-x-4">
+        <motion.div className="flex justify-center space-x-3">
           {[...Array(7)].map((_, i) => (
             <motion.div
               key={i}
-              className="w-4 h-20 bg-gradient-to-t from-cyan-500 to-purple-500 rounded-full"
+              className="w-3 h-16 bg-gradient-to-t from-cyan-500 to-purple-500 rounded-full"
               animate={{
                 scaleY: [1, 2, 1],
               }}

@@ -9,6 +9,7 @@ interface LiveQuestionScreenProps {
   employees: string[];
   currentUser: string;
   hasAlreadyVoted?: boolean;
+  alreadyVotedFor?: string;
   onVote: (selectedPerson: string) => void;
   onTimeEnd?: () => void;
   activatedAt?: string | Date; // When the question was activated (for synchronized timer)
@@ -21,6 +22,7 @@ export function LiveQuestionScreen({
   employees,
   currentUser,
   hasAlreadyVoted = false,
+  alreadyVotedFor = "",
   onVote,
   onTimeEnd,
   activatedAt,
@@ -29,7 +31,7 @@ export function LiveQuestionScreen({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPerson, setSelectedPerson] = useState<string>("");
   const [hasVoted, setHasVoted] = useState(hasAlreadyVoted);
-  const [votedForPerson, setVotedForPerson] = useState<string>("");
+  const [votedForPerson, setVotedForPerson] = useState<string>(alreadyVotedFor);
   const [isExpired, setIsExpired] = useState(false);
 
   // Calculate synchronized time left based on activation time
@@ -86,12 +88,16 @@ export function LiveQuestionScreen({
       setHasVoted(false);
     } else {
       setHasVoted(true);
+      setVotedForPerson(alreadyVotedFor);
     }
     setIsExpired(false);
-  }, [questionId, hasAlreadyVoted]);
+  }, [questionId, hasAlreadyVoted, alreadyVotedFor]);
 
   // Filter employees (exclude current user) - memoize for performance
+  console.log('LiveQuestionScreen - Received employees:', employees);
+  console.log('LiveQuestionScreen - Current user:', currentUser);
   const availableEmployees = employees.filter((emp) => emp !== currentUser);
+  console.log('LiveQuestionScreen - Available employees (after excluding current user):', availableEmployees);
 
   // Optimized filtered list based on search - use useMemo for better performance
   const filteredEmployees = useMemo(() => {
@@ -257,8 +263,20 @@ export function LiveQuestionScreen({
                     </motion.button>
                   ))
                 ) : (
-                  <div className="p-8 text-center text-gray-400">
-                    No matches found
+                  <div className="p-8 text-center">
+                    {availableEmployees.length === 0 ? (
+                      <>
+                        <p className="text-red-400 font-bold text-lg mb-2">⚠️ No employees available for voting</p>
+                        <p className="text-gray-400 text-sm">
+                          This question might be gender-specific and no matching employees were found.
+                        </p>
+                        <p className="text-gray-500 text-xs mt-2">
+                          Please contact admin to check employee gender data.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-gray-400">No matches found for "{searchQuery}"</p>
+                    )}
                   </div>
                 )}
               </div>

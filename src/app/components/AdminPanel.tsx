@@ -25,8 +25,10 @@ interface Question {
   _id?: string;
   text: string;
   duration: number;
+  gender?: "male" | "female" | "both";
   isActive?: boolean;
   isCompleted?: boolean;
+  scheduledAt?: Date | string;
 }
 
 interface Winner {
@@ -42,14 +44,12 @@ interface Winner {
 interface AdminPanelProps {
   onStartQuestion: (question: Question) => void;
   onShowResults: () => void;
-  onStartJackpot?: () => void;
   liveVotes?: number;
 }
 
 export function AdminPanel({
   onStartQuestion,
   onShowResults,
-  onStartJackpot,
   liveVotes = 0,
 }: AdminPanelProps) {
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -57,6 +57,7 @@ export function AdminPanel({
   const [liveVoteCounts, setLiveVoteCounts] = useState<{[person: string]: number}>({});
   const [newQuestion, setNewQuestion] = useState("");
   const [newDuration, setNewDuration] = useState(30);
+  const [newGender, setNewGender] = useState<"male" | "female" | "both">("both");
   const [timeGapMinutes, setTimeGapMinutes] = useState(() => {
     // Load from localStorage or default to 0
     const saved = localStorage.getItem('questionTimeGapMinutes');
@@ -65,7 +66,7 @@ export function AdminPanel({
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [editText, setEditText] = useState("");
   const [editDuration, setEditDuration] = useState(30);
-  const [activeTab, setActiveTab] = useState<"questions" | "monitor" | "users" | "jackpot">(
+  const [activeTab, setActiveTab] = useState<"questions" | "monitor" | "users">(
     "questions"
   );
   const [employees, setEmployees] = useState<any[]>([]);
@@ -75,6 +76,7 @@ export function AdminPanel({
   const [editingEmployee, setEditingEmployee] = useState<any | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editGender, setEditGender] = useState<string>("");
   const employeesPerPage = 20;
   const [isLoading, setIsLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{
@@ -83,35 +85,6 @@ export function AdminPanel({
   }>({ type: null, message: '' });
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isJackpotActive, setIsJackpotActive] = useState(false);
-  const [isRolling, setIsRolling] = useState(false);
-
-  // Check if jackpot is active by monitoring localStorage
-  useEffect(() => {
-    const checkJackpotStatus = () => {
-      const jackpotActive = localStorage.getItem('jackpotActivated');
-      if (jackpotActive === 'true') {
-        setIsJackpotActive(true);
-      }
-      // Note: We don't automatically set it to false here
-      // Only manual close should deactivate it
-    };
-
-    checkJackpotStatus();
-    const interval = setInterval(checkJackpotStatus, 1000);
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'jackpotActivated') {
-        checkJackpotStatus();
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, []);
 
   // Fetch winners from backend
   const fetchWinners = async () => {
@@ -148,7 +121,34 @@ export function AdminPanel({
     fetchQuestions();
     fetchEmployees();
     fetchWinners();
+
+    // Listen for question completion events to refresh immediately
+    const handleQuestionCompleted = () => {
+      console.log('📺 Admin: Question completed event received, refreshing...');
+      fetchQuestions();
+      fetchWinners();
+    };
+
+    window.addEventListener('questionCompleted', handleQuestionCompleted);
+    
+    return () => {
+      window.removeEventListener('questionCompleted', handleQuestionCompleted);
+    };
   }, []);
+
+  // Poll for questions to detect when they complete and update button states
+  useEffect(() => {
+    // Check if there's any active question
+    const hasActiveQuestion = questions.some(q => q.isActive);
+    
+    if (hasActiveQuestion) {
+      // Poll every 2 seconds to detect when question completes
+      const interval = setInterval(() => {
+        fetchQuestions();
+      }, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [questions]);
 
   // Poll for live vote counts and winners when monitor tab is active
   useEffect(() => {
@@ -185,8 +185,10 @@ export function AdminPanel({
         _id: q._id,
         text: q.text,
         duration: q.duration,
+        gender: q.gender || 'both',
         isActive: q.isActive,
         isCompleted: q.isCompleted,
+        scheduledAt: q.scheduledAt,
       }));
       setQuestions(fetchedQuestions);
       // Also refresh winners when questions are fetched
@@ -210,6 +212,7 @@ export function AdminPanel({
       const response = await axios.post(`${API_BASE_URL}/questions`, {
         text: newQuestion,
         duration: newDuration,
+        gender: newGender,
       });
       
       const newQuestionData = {
@@ -217,12 +220,14 @@ export function AdminPanel({
         _id: response.data._id,
         text: response.data.text,
         duration: response.data.duration,
+        gender: response.data.gender,
         isActive: response.data.isActive,
       };
       
       setQuestions([...questions, newQuestionData]);
       setNewQuestion("");
       setNewDuration(30);
+      setNewGender("both");
       setUploadStatus({
         type: 'success',
         message: 'Question added successfully!',
@@ -230,9 +235,11 @@ export function AdminPanel({
       setTimeout(() => setUploadStatus({ type: null, message: '' }), 3000);
     } catch (error: any) {
       console.error('Error adding question:', error);
+      console.error('Error response:', error.response);
+      console.error('Error data:', error.response?.data);
       setUploadStatus({
         type: 'error',
-        message: error.response?.data?.error || 'Failed to add question',
+        message: error.response?.data?.error || error.message || 'Failed to add question. Check if backend server is running.',
       });
       setTimeout(() => setUploadStatus({ type: null, message: '' }), 5000);
     } finally {
@@ -454,7 +461,6 @@ export function AdminPanel({
             { id: "questions", label: "Questions", icon: Pencil },
             { id: "users", label: "Users", icon: Users },
             { id: "monitor", label: "Live Monitor", icon: Eye },
-            { id: "jackpot", label: "Jackpot", icon: Trophy },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -537,7 +543,7 @@ export function AdminPanel({
                 )}
               </button>
               <p className="text-gray-500 text-sm mt-2">
-                Upload .xlsx or .xls file with employee names in the first column
+                Upload .xlsx or .xls file with: Column 1 = Name (required), Column 2 = Gender (Male/Female/Other, optional), Column 3 = Email (optional)
               </p>
             </motion.div>
 
@@ -575,6 +581,21 @@ export function AdminPanel({
                   />
                   <span className="text-gray-400">seconds</span>
                 </div>
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <Users className="w-5 h-5 text-cyan-400" />
+                    <span className="text-white">Gender Filter:</span>
+                  </div>
+                  <select
+                    value={newGender}
+                    onChange={(e) => setNewGender(e.target.value as "male" | "female" | "both")}
+                    className="px-4 py-2 bg-white/10 border border-cyan-500/50 rounded-xl text-white focus:outline-none focus:border-cyan-400"
+                  >
+                    <option value="both" className="bg-gray-800">Both (All Employees)</option>
+                    <option value="male" className="bg-gray-800">Male Only</option>
+                    <option value="female" className="bg-gray-800">Female Only</option>
+                  </select>
+                </div>
                 <button
                   onClick={handleAddQuestion}
                   disabled={isLoading || !newQuestion.trim()}
@@ -601,7 +622,7 @@ export function AdminPanel({
             >
               <h3 className="text-xl font-bold text-white mb-4 flex items-center space-x-2">
                 <Clock className="w-5 h-5 text-yellow-400" />
-                <span>Global Time Gap Between Questions</span>
+                <span>Time Gap Setting (Reference Only)</span>
               </h3>
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
@@ -620,66 +641,26 @@ export function AdminPanel({
                   className="w-24 px-4 py-2 bg-white/10 border border-yellow-500/50 rounded-xl text-white focus:outline-none focus:border-yellow-400"
                   placeholder="0"
                 />
-                <span className="text-gray-400">minutes (applies between all questions)</span>
+                <span className="text-gray-400">minutes (saved for reference)</span>
               </div>
               <p className="text-gray-500 text-sm mt-2">
-                This gap will be applied automatically between all questions when they go live. When one question ends, the next will appear after this time gap.
+                Set your preferred time gap for reference. You will manually activate each question using the "Go Live" button. This setting is saved for your reference only.
               </p>
               <button
-                onClick={async () => {
-                  if (questions.length === 0) {
-                    setUploadStatus({
-                      type: 'error',
-                      message: 'No questions available. Please add questions first.',
-                    });
-                    setTimeout(() => setUploadStatus({ type: null, message: '' }), 3000);
-                    return;
-                  }
+                onClick={() => {
+                  // Just save the time gap setting for reference
+                  localStorage.setItem('questionTimeGapMinutes', timeGapMinutes.toString());
                   
-                  try {
-                    setIsLoading(true);
-                    
-                    // Reset all questions (deactivate and mark as not completed)
-                    await axios.post(`${API_BASE_URL}/questions/reset-all`);
-                    
-                    // Get first question
-                    const firstQuestion = questions[0];
-                    const firstQuestionId = firstQuestion._id || firstQuestion.id;
-                    
-                    // Schedule first question to appear after 30 seconds
-                    await axios.post(`${API_BASE_URL}/questions/${firstQuestionId}/activate`, {
-                      timeGapMinutes: 0.5, // 30 seconds = 0.5 minutes
-                    });
-                    
-                    // Store that question series has started
-                    localStorage.setItem('questionSeriesStarted', 'true');
-                    // Store time gap (use 0.5 minutes as minimum if 0 is set)
-                    const gapToStore = timeGapMinutes > 0 ? timeGapMinutes : 0.5;
-                    localStorage.setItem('questionTimeGapMinutes', gapToStore.toString());
-                    
-                    await fetchQuestions();
-                    
-                    setUploadStatus({
-                      type: 'success',
-                      message: `Question series started! First question will appear in 30 seconds.`,
-                    });
-                    setTimeout(() => setUploadStatus({ type: null, message: '' }), 5000);
-                  } catch (error: any) {
-                    console.error('Error starting question series:', error);
-                    setUploadStatus({
-                      type: 'error',
-                      message: error.response?.data?.error || 'Failed to start question series',
-                    });
-                    setTimeout(() => setUploadStatus({ type: null, message: '' }), 5000);
-                  } finally {
-                    setIsLoading(false);
-                  }
+                  setUploadStatus({
+                    type: 'success',
+                    message: `Time gap saved: ${timeGapMinutes} minute(s). You can now manually activate each question using "Go Live" button.`,
+                  });
+                  setTimeout(() => setUploadStatus({ type: null, message: '' }), 5000);
                 }}
-                disabled={isLoading || questions.length === 0}
-                className="w-full mt-4 py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl text-white text-xl font-black hover:shadow-[0_0_40px_rgba(34,197,94,0.6)] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                className="w-full mt-4 py-4 bg-gradient-to-r from-blue-500 to-cyan-600 rounded-xl text-white text-xl font-black hover:shadow-[0_0_40px_rgba(37,99,235,0.6)] transition-all flex items-center justify-center space-x-2"
               >
-                <Play className="w-6 h-6" />
-                <span>Start Questions</span>
+                <CheckCircle2 className="w-6 h-6" />
+                <span>Save Gap</span>
               </button>
             </motion.div>
 
@@ -763,18 +744,34 @@ export function AdminPanel({
                                 </span>
                               )}
                             </p>
-                            <p className="text-gray-400 text-sm mt-1">
-                              Duration: {question.duration}s
-                            </p>
+                            <div className="flex items-center space-x-4 mt-1">
+                              <p className="text-gray-400 text-sm">
+                                Duration: {question.duration}s
+                              </p>
+                              <p className="text-gray-400 text-sm flex items-center space-x-1">
+                                <Users className="w-3 h-3" />
+                                <span>
+                                  {question.gender === 'male' && '👨 Male Only'}
+                                  {question.gender === 'female' && '👩 Female Only'}
+                                  {(!question.gender || question.gender === 'both') && '👥 Both'}
+                                </span>
+                              </p>
+                            </div>
                           </div>
                           <div className="flex space-x-2">
                             <button
                               onClick={() => handleStartQuestion(question)}
-                              disabled={isLoading || question.isActive}
-                              className="px-4 py-2 bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 rounded-lg text-green-300 font-bold transition-all flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                              disabled={isLoading || question.isActive || !!question.scheduledAt}
+                              className={`px-4 py-2 ${
+                                question.isActive || question.scheduledAt
+                                  ? 'bg-red-500/20 border-red-500/50 text-red-300 cursor-not-allowed'
+                                  : 'bg-green-500/20 hover:bg-green-500/30 border-green-500/50 text-green-300'
+                              } border rounded-lg font-bold transition-all flex items-center space-x-1 disabled:opacity-50`}
                             >
                               <Play className="w-4 h-4" />
-                              <span>Go Live</span>
+                              <span>
+                                {question.scheduledAt ? 'Countdown Started' : question.isActive ? 'Question is Live' : 'Go Live'}
+                              </span>
                             </button>
                             <button
                               onClick={() => handleEditQuestion(question)}
@@ -1120,6 +1117,16 @@ export function AdminPanel({
                                 className="w-full px-3 py-2 bg-white/10 border border-cyan-500/50 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 text-sm"
                                 placeholder="Email (or NA if not available)"
                               />
+                              <select
+                                value={editGender}
+                                onChange={(e) => setEditGender(e.target.value)}
+                                className="w-full px-3 py-2 bg-white/10 border border-cyan-500/50 rounded-lg text-white focus:outline-none focus:border-cyan-400 text-sm"
+                              >
+                                <option value="" className="bg-gray-800">Not Specified</option>
+                                <option value="male" className="bg-gray-800">👨 Male</option>
+                                <option value="female" className="bg-gray-800">👩 Female</option>
+                                <option value="other" className="bg-gray-800">Other</option>
+                              </select>
                               <div className="flex space-x-2">
                                 <button
                                   onClick={async () => {
@@ -1129,11 +1136,13 @@ export function AdminPanel({
                                       await axios.put(`${API_BASE_URL}/employees/${employeeId}`, {
                                         name: editName,
                                         email: (editEmail.trim() || 'NA').toLowerCase(),
+                                        gender: editGender || null,
                                       });
                                       await fetchEmployees();
                                       setEditingEmployee(null);
                                       setEditName("");
                                       setEditEmail("");
+                                      setEditGender("");
                                       setUploadStatus({
                                         type: 'success',
                                         message: 'User updated successfully!',
@@ -1160,6 +1169,7 @@ export function AdminPanel({
                                     setEditingEmployee(null);
                                     setEditName("");
                                     setEditEmail("");
+                                    setEditGender("");
                                   }}
                                   disabled={isLoading}
                                   className="flex-1 px-3 py-2 bg-gray-500 hover:bg-gray-600 rounded-lg text-white font-bold text-sm transition-all"
@@ -1171,21 +1181,33 @@ export function AdminPanel({
                           ) : (
                             <>
                               <div className="flex items-center space-x-3 mb-3">
-                                <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400 font-bold flex-shrink-0">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold flex-shrink-0 ${
+                                  employee.gender === 'male' ? 'bg-blue-500/20 text-blue-400' :
+                                  employee.gender === 'female' ? 'bg-pink-500/20 text-pink-400' :
+                                  'bg-cyan-500/20 text-cyan-400'
+                                }`}>
                                   {employee.name?.charAt(0).toUpperCase() || '?'}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-white font-semibold truncate">
-                                    {employee.name}
-                                  </p>
+                                  <div className="flex items-center space-x-2 mb-1">
+                                    <p className="text-white font-semibold truncate">
+                                      {employee.name}
+                                    </p>
+                                    {employee.gender && (
+                                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                        employee.gender === 'male' ? 'bg-blue-500/20 text-blue-300' :
+                                        employee.gender === 'female' ? 'bg-pink-500/20 text-pink-300' :
+                                        'bg-gray-500/20 text-gray-300'
+                                      }`}>
+                                        {employee.gender === 'male' && '👨 Male'}
+                                        {employee.gender === 'female' && '👩 Female'}
+                                        {employee.gender !== 'male' && employee.gender !== 'female' && employee.gender}
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className="text-gray-400 text-sm truncate">
                                     {employee.email || 'NA'}
                                   </p>
-                                  {employee.gender && (
-                                    <p className="text-gray-500 text-xs capitalize mt-1">
-                                      {employee.gender}
-                                    </p>
-                                  )}
                                 </div>
                               </div>
                               <div className="flex space-x-2">
@@ -1194,6 +1216,7 @@ export function AdminPanel({
                                     setEditingEmployee(employee);
                                     setEditName(employee.name || "");
                                     setEditEmail(employee.email || "");
+                                    setEditGender(employee.gender || "");
                                   }}
                                   disabled={isLoading}
                                   className="flex-1 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-lg text-blue-300 font-bold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-1"
@@ -1263,142 +1286,6 @@ export function AdminPanel({
                   </>
                 );
               })()}
-            </motion.div>
-          </div>
-        )}
-
-        {/* Jackpot Tab */}
-        {activeTab === "jackpot" && (
-          <div className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="bg-black/50 backdrop-blur-lg rounded-2xl p-8 border border-cyan-500/30"
-            >
-              <div className="text-center mb-6">
-                <Trophy className="w-20 h-20 text-yellow-400 mx-auto mb-4" />
-                <h3 className="text-3xl font-black text-white mb-2">Jackpot Lucky Draw</h3>
-                <p className="text-gray-400 text-lg">
-                  Start the slot machine jackpot on the main display
-                </p>
-              </div>
-
-              <div className="max-w-md mx-auto space-y-6">
-                <div className="bg-white/5 rounded-xl p-6 border border-yellow-500/30">
-                  <h4 className="text-white font-bold text-lg mb-3">How it works:</h4>
-                  <ul className="text-gray-300 space-y-2 text-sm">
-                    <li>✓ Click "Open Jackpot" to show on TV/projector</li>
-                    <li>✓ Slot machine appears with all employee names</li>
-                    <li>✓ Click "🎲 Roll" to start the slot machine</li>
-                    <li>✓ 3 random winners will be selected</li>
-                    <li>✓ Winners highlighted in yellow glow (middle row)</li>
-                  </ul>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  {onStartJackpot && (
-                    <motion.button
-                      onClick={() => {
-                        console.log('🎰 Admin: Opening Jackpot Display...');
-                        setIsJackpotActive(true); // Set active state immediately
-                        onStartJackpot();
-                      }}
-                      disabled={isJackpotActive}
-                      className={`px-8 py-6 ${
-                        isJackpotActive
-                          ? "bg-green-600 cursor-not-allowed"
-                          : "bg-gradient-to-r from-yellow-500 via-orange-500 to-red-600 hover:shadow-[0_0_50px_rgba(251,191,36,0.8)]"
-                      } rounded-2xl text-white text-2xl font-black transition-all relative overflow-hidden`}
-                      whileHover={!isJackpotActive ? { scale: 1.05 } : {}}
-                      whileTap={!isJackpotActive ? { scale: 0.95 } : {}}
-                    >
-                      {isJackpotActive ? "✅ Jackpot Active" : "🎰 Open Jackpot"}
-                    </motion.button>
-                  )}
-
-                  <motion.button
-                    onClick={() => {
-                      if (isRolling) return; // Prevent multiple clicks
-                      
-                      console.log('🎲 Admin: Rolling Jackpot...');
-                      setIsRolling(true); // Disable button during roll
-                      
-                      const timestamp = Date.now().toString();
-                      localStorage.setItem('jackpotRoll', timestamp);
-                      window.dispatchEvent(new CustomEvent('jackpotRoll', { detail: { timestamp } }));
-                      
-                      // Broadcast multiple times for reliability
-                      for (let i = 1; i <= 5; i++) {
-                        setTimeout(() => {
-                          localStorage.setItem('jackpotRoll', (parseInt(timestamp) + i).toString());
-                          window.dispatchEvent(new CustomEvent('jackpotRoll'));
-                          console.log(`📡 Roll broadcast attempt ${i}/5`);
-                        }, i * 100);
-                      }
-                      
-                      // Re-enable button after 5 seconds (roll duration)
-                      setTimeout(() => {
-                        setIsRolling(false);
-                        console.log('✅ Roll completed, button re-enabled');
-                      }, 5500); // 5 seconds roll + 0.5s buffer
-                    }}
-                    disabled={!isJackpotActive || isRolling}
-                    className={`px-8 py-6 ${
-                      isJackpotActive && !isRolling
-                        ? "bg-gradient-to-r from-purple-600 via-pink-600 to-red-600 hover:shadow-[0_0_50px_rgba(168,85,247,0.8)]"
-                        : "bg-gray-600 cursor-not-allowed opacity-50"
-                    } rounded-2xl text-white text-2xl font-black transition-all relative overflow-hidden group`}
-                    whileHover={isJackpotActive && !isRolling ? { scale: 1.05 } : {}}
-                    whileTap={isJackpotActive && !isRolling ? { scale: 0.95 } : {}}
-                  >
-                    {isJackpotActive && !isRolling && (
-                      <motion.div
-                        className="absolute inset-0 bg-gradient-to-r from-pink-400 to-purple-400 opacity-0 group-hover:opacity-30"
-                        animate={{
-                          rotate: [0, 360],
-                        }}
-                        transition={{
-                          duration: 2,
-                          repeat: Infinity,
-                          ease: "linear",
-                        }}
-                      />
-                    )}
-                    <span className="relative z-10">
-                      {isRolling ? "🎲 ROLLING... 🎲" : "🎲 ROLL 🎲"}
-                    </span>
-                  </motion.button>
-                </div>
-
-                {/* Close Jackpot Button */}
-                {isJackpotActive && (
-                  <motion.button
-                    onClick={() => {
-                      console.log('❌ Admin: Closing Jackpot...');
-                      setIsJackpotActive(false);
-                      setIsRolling(false); // Reset rolling state
-                      localStorage.removeItem('jackpotActivated');
-                      localStorage.removeItem('jackpotTriggerTime');
-                      localStorage.removeItem('jackpotRoll');
-                      window.dispatchEvent(new CustomEvent('jackpotClosed'));
-                    }}
-                    className="w-full px-8 py-4 bg-gradient-to-r from-red-600 to-orange-600 rounded-xl text-white text-lg font-bold hover:shadow-[0_0_30px_rgba(220,38,38,0.6)] transition-all"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    ❌ Close Jackpot & Reset
-                  </motion.button>
-                )}
-
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
-                  <p className="text-yellow-300 text-sm text-center">
-                    <strong>Note:</strong> Make sure the TV/projector screen is open at{" "}
-                    <code className="bg-black/30 px-2 py-1 rounded">?display=live</code>
-                  </p>
-                </div>
-              </div>
             </motion.div>
           </div>
         )}

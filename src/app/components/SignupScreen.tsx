@@ -6,7 +6,7 @@ import axios from "axios";
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 interface SignupScreenProps {
-  onComplete: (name: string, gender?: string) => void;
+  onComplete: (name: string) => void;
 }
 
 interface Employee {
@@ -17,9 +17,8 @@ interface Employee {
 
 export function SignupScreen({ onComplete }: SignupScreenProps) {
   const [name, setName] = useState("");
-  const [gender, setGender] = useState<string>("");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [employees, setEmployees] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<Employee[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
 
   // Fetch employees from database
@@ -31,8 +30,7 @@ export function SignupScreen({ onComplete }: SignupScreenProps) {
     try {
       setIsLoadingEmployees(true);
       const response = await axios.get(`${API_BASE_URL}/employees`);
-      const employeeNames = response.data.map((emp: Employee) => emp.name);
-      setEmployees(employeeNames);
+      setEmployees(response.data); // Store full employee objects
     } catch (error) {
       console.error('Error fetching employees:', error);
       // If API fails, continue with empty array (user can still type manually)
@@ -46,7 +44,7 @@ export function SignupScreen({ onComplete }: SignupScreenProps) {
     setName(value);
     if (value.length > 0 && employees.length > 0) {
       const filtered = employees.filter((emp) =>
-        emp.toLowerCase().includes(value.toLowerCase())
+        emp.name.toLowerCase().includes(value.toLowerCase())
       );
       setSuggestions(filtered.slice(0, 10)); // Limit to 10 suggestions
     } else {
@@ -54,9 +52,14 @@ export function SignupScreen({ onComplete }: SignupScreenProps) {
     }
   };
 
+  const handleSelectEmployee = (employee: Employee) => {
+    setName(employee.name);
+    setSuggestions([]);
+  };
+
   const handleSubmit = () => {
     if (name.trim()) {
-      onComplete(name, gender);
+      onComplete(name);
     }
   };
 
@@ -120,44 +123,30 @@ export function SignupScreen({ onComplete }: SignupScreenProps) {
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="absolute top-full mt-2 w-full bg-black/90 border border-cyan-500/50 rounded-xl overflow-hidden shadow-lg z-50"
+                  className="absolute top-full mt-2 w-full bg-black/90 border border-cyan-500/50 rounded-xl overflow-hidden shadow-lg z-50 max-h-80 overflow-y-auto"
                 >
-                  {suggestions.map((suggestion, index) => (
+                  {suggestions.map((employee, index) => (
                     <button
-                      key={index}
-                      onClick={() => {
-                        setName(suggestion);
-                        setSuggestions([]);
-                      }}
-                      className="w-full px-6 py-3 text-left text-white hover:bg-cyan-500/20 transition-colors border-b border-cyan-500/20 last:border-b-0"
+                      key={employee._id || index}
+                      onClick={() => handleSelectEmployee(employee)}
+                      className="w-full px-6 py-3 text-left hover:bg-cyan-500/20 transition-colors border-b border-cyan-500/20 last:border-b-0 flex items-center justify-between"
                     >
-                      {suggestion}
+                      <span className="text-white font-semibold">{employee.name}</span>
+                      {employee.gender && (
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          employee.gender === 'male' ? 'bg-blue-500/20 text-blue-300' :
+                          employee.gender === 'female' ? 'bg-pink-500/20 text-pink-300' :
+                          'bg-gray-500/20 text-gray-300'
+                        }`}>
+                          {employee.gender === 'male' && '👨 Male'}
+                          {employee.gender === 'female' && '👩 Female'}
+                          {employee.gender !== 'male' && employee.gender !== 'female' && employee.gender}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </motion.div>
               )}
-            </div>
-          </div>
-
-          {/* Gender Selection (Optional) */}
-          <div className="space-y-2">
-            <label className="text-white font-bold text-sm uppercase tracking-wide">
-              Gender (Optional)
-            </label>
-            <div className="grid grid-cols-3 gap-3">
-              {["Male", "Female", "Other"].map((option) => (
-                <button
-                  key={option}
-                  onClick={() => setGender(option)}
-                  className={`py-3 rounded-xl font-bold transition-all ${
-                    gender === option
-                      ? "bg-cyan-500 text-black shadow-[0_0_20px_rgba(6,182,212,0.6)]"
-                      : "bg-white/10 text-white border border-cyan-500/30 hover:bg-white/20"
-                  }`}
-                >
-                  {option}
-                </button>
-              ))}
             </div>
           </div>
 

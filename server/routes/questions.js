@@ -87,10 +87,15 @@ router.get('/:id', async (req, res) => {
 // Create question
 router.post('/', async (req, res) => {
   try {
+    if (!checkMongoConnection(res)) return;
+    
+    console.log('Creating question with data:', req.body);
     const question = new Question(req.body);
     await question.save();
+    console.log('Question created successfully:', question);
     res.status(201).json(question);
   } catch (error) {
+    console.error('Error creating question:', error);
     res.status(400).json({ error: error.message });
   }
 });

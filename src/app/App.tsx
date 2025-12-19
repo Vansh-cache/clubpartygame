@@ -23,6 +23,7 @@ interface Question {
   _id?: string;
   text: string;
   duration: number;
+  gender?: "male" | "female" | "both";
   activatedAt?: string | Date;
 }
 
@@ -44,6 +45,7 @@ interface VoteData {
   [questionId: string]: {
     votes: { [person: string]: number };
     userVoted: boolean;
+    votedFor?: string;
   };
 }
 
@@ -53,7 +55,7 @@ export default function App() {
   const [userGender, setUserGender] = useState<string>("");
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [allWinners, setAllWinners] = useState<Winner[]>([]);
-  const [employees, setEmployees] = useState<string[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   
   // Vote tracking per question
   const [votes, setVotes] = useState<VoteData>({});
@@ -69,12 +71,11 @@ export default function App() {
   // Check if live question display mode via URL parameter
   const isLiveDisplayMode = window.location.search.includes("display=live");
 
-  const fetchEmployees = async (): Promise<string[]> => {
+  const fetchEmployees = async (): Promise<Employee[]> => {
     try {
       const response = await axios.get(`${API_BASE_URL}/employees`);
-      const employeeNames = response.data.map((emp: Employee) => emp.name);
-      setEmployees(employeeNames);
-      return employeeNames;
+      setEmployees(response.data);
+      return response.data;
     } catch (error) {
       console.error('Error fetching employees:', error);
       setEmployees([]);
@@ -82,29 +83,6 @@ export default function App() {
     }
   };
 
-  const handleStartJackpot = () => {
-    console.log('🎰 Admin: Starting Jackpot broadcast...');
-    
-    // Broadcast jackpot event
-    const timestamp = Date.now().toString();
-    localStorage.setItem('jackpotActivated', 'true'); // Set to 'true' string
-    localStorage.setItem('jackpotTriggerTime', timestamp);
-    window.dispatchEvent(new CustomEvent('jackpotActivated', {
-      detail: { timestamp }
-    }));
-    
-    // Dispatch multiple times to ensure all listeners catch it
-    for (let i = 1; i <= 5; i++) {
-      setTimeout(() => {
-        const newTimestamp = (Date.now() + i).toString();
-        localStorage.setItem('jackpotActivated', newTimestamp);
-        window.dispatchEvent(new CustomEvent('jackpotActivated'));
-        console.log(`📡 Jackpot broadcast attempt ${i}/5`);
-      }, i * 100);
-    }
-    
-    console.log('✅ Jackpot broadcast initiated');
-  };
 
   const handleEntry = () => {
     if (isAdminMode) {
@@ -114,9 +92,9 @@ export default function App() {
     }
   };
 
-  const handleSignupComplete = (name: string, gender?: string) => {
+  const handleSignupComplete = (name: string) => {
     setUserName(name);
-    setUserGender(gender || "");
+    setUserGender("");
     setCurrentScreen("waiting");
   };
 
@@ -132,6 +110,7 @@ export default function App() {
           text: response.data.text,
           duration: response.data.duration,
           activatedAt: response.data.activatedAt,
+          gender: response.data.gender, // Include gender for filtering
         });
       } else {
         setCurrentQuestion(question);
@@ -144,10 +123,16 @@ export default function App() {
     // Check if user has already voted for this question from backend
     const qId = question.id || question._id || '';
     let hasVoted = false;
+    let votedForPerson = "";
     try {
       const votesResponse = await axios.get(`${API_BASE_URL}/votes/question/${qId}`);
       if (votesResponse.data && votesResponse.data.votes) {
-        hasVoted = votesResponse.data.votes.some((vote: any) => vote.voterName === userName);
+        const userVote = votesResponse.data.votes.find((vote: any) => vote.voterName === userName);
+        if (userVote) {
+          hasVoted = true;
+          votedForPerson = userVote.votedFor;
+          console.log(`✅ User ${userName} has already voted for: ${votedForPerson}`);
+        }
       }
     } catch (error) {
       // If error, assume not voted
@@ -157,7 +142,7 @@ export default function App() {
     // ALWAYS initialize fresh vote state for new question
     setVotes(prev => ({
       ...prev,
-      [qId]: { votes: {}, userVoted: hasVoted },
+      [qId]: { votes: {}, userVoted: hasVoted, votedFor: votedForPerson },
     }));
     
     // Refresh employees list to ensure it's up to date
@@ -207,10 +192,6 @@ export default function App() {
     if (currentQuestion) {
       const questionId = currentQuestion._id || currentQuestion.id;
       
-      // Check if question series is active FIRST, before deactivating
-      const seriesStarted = localStorage.getItem('questionSeriesStarted') === 'true';
-      const timeGapMinutes = parseInt(localStorage.getItem('questionTimeGapMinutes') || '0');
-      
       // Deactivate and mark current question as completed
       try {
         await axios.post(`${API_BASE_URL}/questions/${questionId}/deactivate`);
@@ -219,47 +200,7 @@ export default function App() {
         console.error('Error deactivating question:', error);
       }
       
-      // Automatically schedule next question if series is active
-      if (seriesStarted) {
-        try {
-          // Get all questions and find the next one
-          const questionsResponse = await axios.get(`${API_BASE_URL}/questions`);
-          // Sort questions by createdAt (oldest first) to ensure correct order
-          const allQuestions = questionsResponse.data.sort((a: any, b: any) => {
-            const dateA = new Date(a.createdAt || 0).getTime();
-            const dateB = new Date(b.createdAt || 0).getTime();
-            return dateA - dateB;
-          });
-          
-          const currentIndex = allQuestions.findIndex((q: any) => 
-            (q._id || q.id) === questionId
-          );
-          
-          if (currentIndex >= 0 && currentIndex < allQuestions.length - 1) {
-            // Get next question
-            const nextQuestion = allQuestions[currentIndex + 1];
-            const nextQuestionId = nextQuestion._id || nextQuestion.id;
-            
-            // Use timeGapMinutes if > 0, otherwise use 0.5 minutes (30 seconds) as default
-            const gapToUse = timeGapMinutes > 0 ? timeGapMinutes : 0.5;
-            
-            console.log(`Automatically scheduling next question ${nextQuestionId} with ${gapToUse} minutes gap`);
-            
-            // Automatically activate/schedule the next question
-            await axios.post(`${API_BASE_URL}/questions/${nextQuestionId}/activate`, {
-              timeGapMinutes: gapToUse,
-            });
-            
-            console.log(`Next question scheduled successfully. It will go live automatically after ${gapToUse} minutes.`);
-          } else {
-            // No more questions, end the series
-            console.log('No more questions, ending series');
-            localStorage.removeItem('questionSeriesStarted');
-          }
-        } catch (error) {
-          console.error('Error scheduling next question:', error);
-        }
-      }
+      // Note: Questions are now manually activated - no automatic scheduling
 
       // IMPORTANT: Mark question as completed in backend FIRST
       try {
@@ -393,7 +334,7 @@ export default function App() {
     
     console.log('✅ Results ready, notified all displays');
 
-    // Auto-return to waiting after 3 seconds (results will show, then go to waiting for next question)
+    // Auto-return to waiting after 5 seconds (results will show, then go to waiting for next question)
     setTimeout(() => {
       setCurrentScreen("waiting");
       setCurrentQuestion(null);
@@ -406,7 +347,7 @@ export default function App() {
           return updated;
         });
       }
-    }, 3000);
+    }, 5000);
   };
 
 
@@ -422,7 +363,6 @@ export default function App() {
       <AdminPanel
         onStartQuestion={handleStartQuestion}
         onShowResults={handleShowResults}
-        onStartJackpot={handleStartJackpot}
         liveVotes={Math.floor(Math.random() * 50)}
       />
     );
@@ -450,10 +390,16 @@ export default function App() {
             // Check if user has already voted for this question from backend
             const qId = question._id || question.id;
             let hasVoted = false;
+            let votedForPerson = "";
             try {
               const votesResponse = await axios.get(`${API_BASE_URL}/votes/question/${qId}`);
               if (votesResponse.data && votesResponse.data.votes) {
-                hasVoted = votesResponse.data.votes.some((vote: any) => vote.voterName === userName);
+                const userVote = votesResponse.data.votes.find((vote: any) => vote.voterName === userName);
+                if (userVote) {
+                  hasVoted = true;
+                  votedForPerson = userVote.votedFor;
+                  console.log(`✅ User ${userName} has already voted for: ${votedForPerson}`);
+                }
               }
             } catch (error) {
               // If error, assume not voted
@@ -463,7 +409,7 @@ export default function App() {
             // Initialize fresh vote state for this question
             setVotes(prev => ({
               ...prev,
-              [qId]: { votes: {}, userVoted: hasVoted },
+              [qId]: { votes: {}, userVoted: hasVoted, votedFor: votedForPerson },
             }));
             
             setCurrentQuestion({
@@ -472,6 +418,7 @@ export default function App() {
               text: question.text,
               duration: question.duration,
               activatedAt: question.activatedAt,
+              gender: question.gender, // Include gender for filtering
             });
             setCurrentScreen("question");
           }}
@@ -480,22 +427,53 @@ export default function App() {
       break;
 
     case "question":
-      screenComponent = currentQuestion ? (
-        <LiveQuestionScreen
-          questionId={currentQuestion.id}
-          question={currentQuestion.text}
-          timeLimit={currentQuestion.duration}
-          employees={employees}
-          currentUser={userName}
-          hasAlreadyVoted={votes[currentQuestion.id]?.userVoted || false}
-          onVote={handleVote}
-          onTimeEnd={() => {
-            // When time ends, automatically show results
-            handleShowResults();
-          }}
-          activatedAt={currentQuestion.activatedAt}
-        />
-      ) : (
+      screenComponent = currentQuestion ? (() => {
+        // Filter employees based on question gender
+        console.log('=== GENDER FILTERING DEBUG ===');
+        console.log('Current Question:', currentQuestion);
+        console.log('Question Gender:', currentQuestion.gender);
+        console.log('Total Employees:', employees.length);
+        console.log('Employees with gender:', employees.map(e => ({ name: e.name, gender: e.gender })));
+        
+        let filteredEmployees: string[];
+        
+        if (currentQuestion.gender === 'male') {
+          const maleEmployees = employees.filter(emp => emp.gender?.toLowerCase() === 'male');
+          filteredEmployees = maleEmployees.map(emp => emp.name);
+          console.log(`🔵 Question for MALE only.`);
+          console.log('Male employees found:', maleEmployees);
+          console.log(`Filtered ${filteredEmployees.length} male employees from ${employees.length} total.`);
+        } else if (currentQuestion.gender === 'female') {
+          const femaleEmployees = employees.filter(emp => emp.gender?.toLowerCase() === 'female');
+          filteredEmployees = femaleEmployees.map(emp => emp.name);
+          console.log(`🟣 Question for FEMALE only.`);
+          console.log('Female employees found:', femaleEmployees);
+          console.log(`Filtered ${filteredEmployees.length} female employees from ${employees.length} total.`);
+          console.log('Final filtered employee names:', filteredEmployees);
+        } else {
+          filteredEmployees = employees.map(emp => emp.name);
+          console.log(`🟢 Question for BOTH genders. Showing all ${filteredEmployees.length} employees.`);
+        }
+        console.log('=== END DEBUG ===');
+        
+        return (
+          <LiveQuestionScreen
+            questionId={currentQuestion.id}
+            question={currentQuestion.text}
+            timeLimit={currentQuestion.duration}
+            employees={filteredEmployees}
+            currentUser={userName}
+            hasAlreadyVoted={votes[currentQuestion.id]?.userVoted || false}
+            alreadyVotedFor={votes[currentQuestion.id]?.votedFor || ""}
+            onVote={handleVote}
+            onTimeEnd={() => {
+              // When time ends, automatically show results
+              handleShowResults();
+            }}
+            activatedAt={currentQuestion.activatedAt}
+          />
+        );
+      })() : (
         <WaitingScreen
           userName={userName}
           onActiveQuestion={(question) => {
@@ -504,6 +482,7 @@ export default function App() {
               _id: question._id,
               text: question.text,
               duration: question.duration,
+              gender: question.gender, // Include gender for filtering
             });
             setCurrentScreen("question");
           }}

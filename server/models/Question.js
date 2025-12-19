@@ -13,6 +13,11 @@ const questionSchema = new mongoose.Schema({
     max: 120,
     default: 30,
   },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'both'],
+    default: 'both',
+  },
   isActive: {
     type: Boolean,
     default: false,

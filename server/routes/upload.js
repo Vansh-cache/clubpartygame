@@ -58,7 +58,7 @@ router.post('/excel', upload.single('file'), async (req, res) => {
       defval: null 
     });
 
-    // Extract employee names and emails (assuming first column contains names, second column contains emails)
+    // Extract employee data: Column 1=Name, Column 2=Gender, Column 3=Email
     const employees = [];
     const seenNames = new Set();
 
@@ -66,9 +66,19 @@ router.post('/excel', upload.single('file'), async (req, res) => {
       // Skip empty rows
       if (!row || row.length === 0) return;
       
-      // Get name from first column
+      // Skip header row if detected (first row contains typical header keywords)
+      if (index === 0 && row[0] && typeof row[0] === 'string') {
+        const firstCell = row[0].toLowerCase().trim();
+        if (firstCell === 'name' || firstCell === 'employee' || firstCell === 'employee name') {
+          console.log('Header row detected and skipped');
+          return;
+        }
+      }
+      
+      // Get data from correct columns: Name, Gender, Email
       const name = row[0];
-      const email = row[1] || ''; // Email from second column (optional)
+      const gender = row[1] || ''; // Gender from second column (optional)
+      const email = row[2] || ''; // Email from third column (optional)
       
       if (name && typeof name === 'string' && name.trim()) {
         const trimmedName = name.trim();
@@ -76,12 +86,26 @@ router.post('/excel', upload.single('file'), async (req, res) => {
           ? email.trim().toLowerCase() 
           : 'NA';
         
+        // Parse gender (case-insensitive)
+        let parsedGender = null;
+        if (typeof gender === 'string' && gender.trim()) {
+          const genderLower = gender.trim().toLowerCase();
+          if (genderLower === 'male' || genderLower === 'm') {
+            parsedGender = 'male';
+          } else if (genderLower === 'female' || genderLower === 'f') {
+            parsedGender = 'female';
+          } else if (genderLower === 'other') {
+            parsedGender = 'other';
+          }
+        }
+        
         // Avoid duplicates (case-insensitive)
         if (!seenNames.has(trimmedName.toLowerCase())) {
           seenNames.add(trimmedName.toLowerCase());
           employees.push({
             name: trimmedName,
             email: trimmedEmail,
+            gender: parsedGender,
           });
         }
       }
