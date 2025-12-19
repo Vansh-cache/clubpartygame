@@ -13,8 +13,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// CORS Configuration - Allow all origins for now, restrict later if needed
+app.use(cors({
+  origin: true, // Accept all origins
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // Middleware
-app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -24,11 +31,11 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/party-
 console.log('🔄 Attempting to connect to MongoDB...');
 console.log('📍 MongoDB URI:', MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@')); // Hide password in logs
 
-// MongoDB connection options
+// MongoDB connection options - More generous timeouts for cloud deployments
 const mongooseOptions = {
-  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+  serverSelectionTimeoutMS: 30000, // 30 seconds for initial connection
   socketTimeoutMS: 45000,
-  connectTimeoutMS: 10000,
+  connectTimeoutMS: 30000,
 };
 
 // Connect to MongoDB
@@ -92,9 +99,27 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Start server
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Party Game API Server',
+    status: 'running',
+    endpoints: {
+      health: '/api/health',
+      employees: '/api/employees',
+      questions: '/api/questions',
+      votes: '/api/votes',
+      winners: '/api/winners'
+    }
+  });
+});
+
+// Start server - bind to 0.0.0.0 for Render/Cloud deployments
+const HOST = process.env.HOST || '0.0.0.0';
+const server = app.listen(PORT, HOST, () => {
+  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌐 Health check: http://${HOST}:${PORT}/api/health`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`❌ Port ${PORT} is already in use!`);

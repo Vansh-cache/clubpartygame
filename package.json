@@ -4,7 +4,8 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "npm install && cd server && npm install",
+    "start": "node server/index.js",
     "dev": "vite",
     "server": "node server/index.js",
     "server:dev": "node --watch server/index.js",
